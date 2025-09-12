@@ -1,471 +1,276 @@
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
+import { useAuth, useRepository } from "../lib/repo/context.jsx";
+import toast from 'react-hot-toast';
 
 export default function Vote() {
-  const [votings, setVotings] = useState([]);
-  const [userVotes, setUserVotes] = useState({}); // { [votingId]: {vote, initiator} }
-  const [msg, setMsg] = useState("");
-
-  const user = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem("vg_user") || "null"); }
-    catch { return null; }
-  }, []);
+  const [polls, setPolls] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const { repository, backend } = useRepository();
 
   useEffect(() => {
-    seedDefaultsIfNeeded();
-    loadVotings();
-    loadUserVotes();
+    loadPolls();
   }, []);
 
-  /** добавляем дефолтный опрос в localStorage, если его там ещё нет */
-  const seedDefaultsIfNeeded = () => {
-    const saved = JSON.parse(localStorage.getItem("vg_votings") || "[]");
-
-    const defaultVotings = [
-      {
-        id: "default_001",
-        title: "Срочно нужен трактор для расчистки снега",
-        text: "Срочно нужен трактор для расчистки снега на улице Корабельная",
-        status: "voting",
-        participants: ["Корабельная_1", "Корабельная_3", "Корабельная_5"],
-        votingEnd: "2024-01-20T21:00:00",
-        requiresFinancing: true,
-        requiresInitiator: true,
-        createdBy: "system",
-        votes: { yes: 34, no: 10, abstain: 3, total: 47 },
-        initiatorVotes: { yes: 3, no: 32 },
-      },
-    ];
-
-    // если дефолтного нет — добавим и сохраним
-    const exists = saved.some((v) => v.id === "default_001");
-    if (!exists) {
-      const updated = [...saved, ...defaultVotings];
-      localStorage.setItem("vg_votings", JSON.stringify(updated));
+  const loadPolls = async () => {
+    try {
+      setLoading(true);
+      
+      if (backend === 'local') {
+        // Загружаем ВСЕ голосования из localStorage
+        const createdPolls = JSON.parse(localStorage.getItem('vg_created_polls') || '[]');
+        
+        console.log('📊 ВСЕГО голосований в localStorage:', createdPolls.length);
+        
+        // Показываем только голосования со статусом 'voting' 
+        const activePolls = createdPolls.filter(poll => poll.status === 'voting');
+        
+        console.log('✅ Голосований со статусом "voting":', activePolls.length);
+        
+        // Добавляем опции если их нет
+        const pollsWithOptions = activePolls.map(poll => ({
+          ...poll,
+          options: poll.options || [
+            { id: 1, text: "ДА" },
+            { id: 2, text: "НЕТ" },
+            { id: 3, text: "ВОЗДЕРЖАЛСЯ" }
+          ]
+        }));
+        
+        setPolls(pollsWithOptions);
+        
+        console.log('📋 Отображаемые голосования:', pollsWithOptions.map(p => p.title));
+      } else {
+        // Supabase данные
+        const data = await repository.listPolls('active');
+        setPolls(data);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки опросов:', error);
+      toast.error('Ошибка загрузки опросов');
+    } finally {
+      setLoading(false);
     }
   };
 
-  /** грузим список голосований, показываем только активные/черновики */
-  const loadVotings = () => {
-    const saved = JSON.parse(localStorage.getItem("vg_votings") || "[]");
-    const active = saved.filter((v) => v.status === "voting" || v.status === "draft");
-    setVotings(active);
-  };
-
-  /** грузим сохранённые голоса конкретного пользователя (чтобы после F5 не голосовал заново) */
-  const loadUserVotes = () => {
+  const handleVote = async (pollId, optionId, isInitiator = false) => {
     try {
-      const map = JSON.parse(localStorage.getItem("vg_votes") || "{}"); // { [votingId]: { [userId]: {vote, initiator} } }
-      if (!user) return;
-      const mine = {};
-      Object.keys(map).forEach((vId) => {
-        if (map[vId] && map[vId][user.id]) {
-          mine[vId] = map[vId][user.id];
+      if (backend === 'local') {
+        const votesKey = `poll_${pollId}_votes`;
+        const userVotesKey = `poll_${pollId}_user_votes`;
+        
+        const userVotes = JSON.parse(localStorage.getItem(userVotesKey) || '{}');
+        const votes = JSON.parse(localStorage.getItem(votesKey) || '{}');
+        
+        // Проверить что еще не голосовал
+        if (userVotes[user.username || user.login]) {
+          toast.error('Вы уже проголосовали в этом опросе');
+          return;
         }
-      });
-      setUserVotes(mine);
-    } catch {
-      /* ignore */
+        
+        // Записать голос
+        userVotes[user.username || user.login] = optionId;
+        votes[optionId] = (votes[optionId] || 0) + 1;
+        
+        localStorage.setItem(userVotesKey, JSON.stringify(userVotes));
+        localStorage.setItem(votesKey, JSON.stringify(votes));
+        
+        toast.success('Ваш голос учтён!');
+        
+        // Перезагружаем данные
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      }
+    } catch (error) {
+      console.error('Ошибка голосования:', error);
+      toast.error('Ошибка при голосовании: ' + error.message);
     }
   };
 
-  const handleVote = (votingId, voteType, initiatorChoice) => {
-    // 1) отметим локально
-    setUserVotes((prev) => ({
-      ...prev,
-      [votingId]: { vote: voteType, initiator: initiatorChoice },
-    }));
-
-    // 2) достанем все опросы из localStorage
-    const all = JSON.parse(localStorage.getItem("vg_votings") || "[]");
-    // найдём конкретный
-    let idx = all.findIndex((v) => v.id === votingId);
-
-    // если по какой-то причине этого голосования нет в LS — возьмём из state и добавим
-    if (idx === -1) {
-      const fallback = votings.find((v) => v.id === votingId);
-      if (fallback) {
-        all.push({ ...fallback });
-        idx = all.length - 1;
-      }
+  const checkUserVoted = (pollId) => {
+    if (backend === 'local') {
+      const userVotesKey = `poll_${pollId}_user_votes`;
+      const userVotes = JSON.parse(localStorage.getItem(userVotesKey) || '{}');
+      return userVotes[user.username || user.login] || null;
     }
-
-    if (idx !== -1) {
-      const voting = { ...all[idx] };
-
-      // гарантируем наличие структур
-      voting.votes = voting.votes || { yes: 0, no: 0, abstain: 0, total: 0 };
-      voting.initiatorVotes = voting.initiatorVotes || { yes: 0, no: 0 };
-
-      // считаем голос
-      if (voteType === "yes" || voteType === "no" || voteType === "abstain") {
-        voting.votes[voteType] = (voting.votes[voteType] || 0) + 1;
-        voting.votes.total = (voting.votes.total || 0) + 1;
-      }
-      // считаем инициатора
-      if (voting.requiresInitiator && (initiatorChoice === "yes" || initiatorChoice === "no")) {
-        voting.initiatorVotes[initiatorChoice] =
-          (voting.initiatorVotes[initiatorChoice] || 0) + 1;
-      }
-
-      // сохраним назад
-      all[idx] = voting;
-      localStorage.setItem("vg_votings", JSON.stringify(all));
-      // освежим список на экране
-      setVotings((prev) => prev.map((v) => (v.id === votingId ? voting : v)));
-    }
-
-    // 3) зафиксируем «кто проголосовал» (по пользователю)
-    try {
-      const votesMap = JSON.parse(localStorage.getItem("vg_votes") || "{}");
-      const uid = user?.id || "guest"; // при желании можно заставить логиниться
-      votesMap[votingId] = votesMap[votingId] || {};
-      votesMap[votingId][uid] = { vote: voteType, initiator: initiatorChoice };
-      localStorage.setItem("vg_votes", JSON.stringify(votesMap));
-    } catch {
-      /* ignore */
-    }
-
-    const voting = votings.find((v) => v.id === votingId);
-    setMsg(`Спасибо! Ваш голос по "${voting?.title}" учтён.`);
-    setTimeout(() => setMsg(""), 3000);
+    return null;
   };
 
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      draft: { text: "Черновик", color: "#9ca3af" },
-      voting: { text: "Голосование", color: "#3b82f6" },
-      tender: { text: "Тендер", color: "#f59e0b" },
-    };
-    const config = statusConfig[status] || { text: status, color: "#6b7280" };
+  if (loading) {
     return (
-      <span
-        style={{
-          padding: "4px 8px",
-          borderRadius: 12,
-          fontSize: 12,
-          fontWeight: 600,
-          color: "white",
-          backgroundColor: config.color,
-        }}
-      >
-        {config.text}
-      </span>
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      </div>
     );
-  };
+  }
 
   return (
-    <div style={{ maxWidth: 800, margin: "24px auto", padding: "0 16px" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 24,
-        }}
-      >
+    <div className="max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 style={{ margin: "0 0 8px 0" }}>Активные голосования</h1>
-          <p style={{ color: "#666", margin: 0, fontSize: 14 }}>
-            Участвуйте в голосованиях по вопросам вашего района
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Активные голосования</h1>
+          <p className="text-gray-600">Участвуйте в голосованиях по вопросам вашего района</p>
         </div>
-
         <button
-          onClick={() => { loadVotings(); loadUserVotes(); }}
-          style={{
-            padding: "8px 16px",
-            border: "1px solid #ddd",
-            borderRadius: 6,
-            backgroundColor: "white",
-            cursor: "pointer",
-            fontSize: 14,
-          }}
+          onClick={loadPolls}
+          className="px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
           Обновить
         </button>
       </div>
 
-      {votings.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: 40,
-            border: "2px dashed #ddd",
-            borderRadius: 12,
-            color: "#666",
-          }}
-        >
-          <h3 style={{ margin: "0 0 8px 0" }}>Нет активных голосований</h3>
-          <p style={{ margin: 0, fontSize: 14 }}>
-            Ответственные могут создать новое голосование
+      {polls.length === 0 ? (
+        <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Нет активных голосований</h3>
+          <p className="text-gray-500">
+            Голосования временно приостановлены
           </p>
         </div>
       ) : (
-        votings.map((voting) => (
-          <VotingCard
-            key={voting.id}
-            voting={voting}
-            userVote={userVotes[voting.id]}
-            onVote={handleVote}
-            getStatusBadge={getStatusBadge}
-          />
-        ))
-      )}
-
-      {msg && (
-        <div
-          style={{
-            position: "fixed",
-            top: 20,
-            right: 20,
-            background: "#10b981",
-            color: "white",
-            padding: "12px 20px",
-            borderRadius: 8,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-            zIndex: 1000,
-          }}
-        >
-          {msg}
+        <div className="space-y-6">
+          {polls.map((poll) => (
+            <PollCard 
+              key={poll.id} 
+              poll={poll} 
+              onVote={handleVote}
+              userVoted={checkUserVoted(poll.id)}
+              user={user}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function VotingCard({ voting, userVote, onVote, getStatusBadge }) {
-  const [vote, setVote] = useState(userVote?.vote || "");
-  const [initiator, setInitiator] = useState(userVote?.initiator || "no");
+function PollCard({ poll, onVote, userVoted, user }) {
+  const [selectedOption, setSelectedOption] = useState('');
+  const [isInitiator, setIsInitiator] = useState(false);
 
-  useEffect(() => {
-    // если из localStorage подтянули уже проголосованное — подставим в форму
-    setVote(userVote?.vote || "");
-    setInitiator(userVote?.initiator || "no");
-  }, [userVote]);
+  const hasVoted = !!userVoted;
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!vote) return;
-    onVote(voting.id, vote, initiator);
+    if (!selectedOption) return;
+    
+    const optionId = parseInt(selectedOption);
+    onVote(poll.id, optionId, isInitiator);
   };
 
-  const isVoted = !!userVote;
-  const isActive = voting.status === "voting";
+  const getStatusBadge = () => (
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+      Голосование
+    </span>
+  );
 
   return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: 12,
-        padding: 20,
-        marginBottom: 20,
-        backgroundColor: isVoted ? "#f0fdf4" : "white",
-        opacity: isActive ? 1 : 0.7,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 12,
-        }}
-      >
-        <h3 style={{ margin: "0", color: "#1f2937", flex: 1 }}>{voting.title}</h3>
-        {getStatusBadge(voting.status)}
+    <div className="bg-white shadow rounded-lg border border-gray-200 p-6">
+      {/* Заголовок и статус */}
+      <div className="flex justify-between items-start mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">{poll.title}</h3>
+        {getStatusBadge()}
       </div>
 
-      <p style={{ color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.5 }}>
-        {voting.text}
-      </p>
+      {/* Описание */}
+      <p className="text-gray-600 mb-4">{poll.description}</p>
 
-      <div
-        style={{
-          fontSize: 13,
-          color: "#6b7280",
-          marginBottom: 16,
-          display: "grid",
-          gap: 4,
-        }}
-      >
+      {/* Метаданные */}
+      <div className="text-sm text-gray-500 mb-4 space-y-1">
         <div>
-          <strong>Участники:</strong>{" "}
-          {Array.isArray(voting.participants) ? voting.participants.join(", ") : "—"}
+          <span className="font-medium">Участники:</span> {poll.participants?.join(", ") || "—"}
         </div>
-        {voting.votingEnd && (
+        {poll.endAt && (
           <div>
-            <strong>Окончание:</strong>{" "}
-            {new Date(voting.votingEnd).toLocaleString("ru-RU")}
+            <span className="font-medium">Окончание:</span> {new Date(poll.endAt).toLocaleString("ru-RU")}
           </div>
         )}
-        {voting.requiresFinancing && (
-          <div style={{ color: "#f59e0b" }}>💰 Требуется финансирование</div>
+        {poll.requiresFinancing && (
+          <div className="text-amber-600">
+            💰 Требуется финансирование
+          </div>
         )}
-        {voting.requiresInitiator && (
-          <div style={{ color: "#8b5cf6" }}>👤 Требуется инициатор</div>
+        {poll.requiresInitiator && (
+          <div className="text-purple-600">
+            👤 Требуется инициатор
+          </div>
         )}
       </div>
 
-      {!isVoted && isActive ? (
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
+      {/* Форма голосования или результат */}
+      {hasVoted ? (
+        <div className="bg-green-50 rounded-md p-4 text-green-800">
+          Вы уже проголосовали в этом опросе
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Варианты голосования */}
           <div>
-            <label
-              style={{
-                display: "block",
-                fontWeight: 600,
-                marginBottom: 8,
-                fontSize: 15,
-              }}
-            >
+            <label className="text-base font-medium text-gray-900 block mb-3">
               Ваш голос:
             </label>
-            <div style={{ display: "grid", gap: 8 }}>
-              {[
-                { value: "yes", label: "✅ ДА", color: "#10b981" },
-                { value: "no", label: "❌ НЕТ", color: "#ef4444" },
-                { value: "abstain", label: "⚪ ВОЗДЕРЖАЛСЯ", color: "#6b7280" },
-              ].map((option) => (
-                <label
-                  key={option.value}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: 12,
-                    border: "2px solid",
-                    borderColor: vote === option.value ? option.color : "#e5e7eb",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    backgroundColor:
-                      vote === option.value ? `${option.color}10` : "white",
-                    transition: "all 0.2s",
-                  }}
-                >
+            <div className="space-y-2">
+              {poll.options?.map((option) => (
+                <label key={option.id} className="flex items-center">
                   <input
                     type="radio"
-                    name={`vote_${voting.id}`}
-                    value={option.value}
-                    checked={vote === option.value}
-                    onChange={(e) => setVote(e.target.value)}
-                    style={{ marginRight: 12 }}
+                    name={`vote_${poll.id}`}
+                    value={option.id}
+                    onChange={(e) => setSelectedOption(e.target.value)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
                   />
-                  <span style={{ fontWeight: vote === option.value ? 600 : 400 }}>
-                    {option.label}
+                  <span className="ml-3 text-sm text-gray-700">
+                    {option.text === 'ДА' && '✅'} 
+                    {option.text === 'НЕТ' && '❌'} 
+                    {option.text === 'ВОЗДЕРЖАЛСЯ' && '⚪'} 
+                    {option.text}
                   </span>
                 </label>
               ))}
             </div>
           </div>
 
-          {voting.requiresInitiator && (
+          {/* Вопрос об инициаторстве */}
+          {poll.requiresInitiator && (
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  fontSize: 15,
-                }}
-              >
+              <label className="text-base font-medium text-gray-900 block mb-3">
                 Готовы быть инициатором?
               </label>
-              <div style={{ display: "flex", gap: 12 }}>
-                {[
-                  { value: "yes", label: "👍 ДА", color: "#10b981" },
-                  { value: "no", label: "👎 НЕТ", color: "#6b7280" },
-                ].map((option) => (
-                  <label
-                    key={option.value}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "8px 16px",
-                      border: "2px solid",
-                      borderColor:
-                        initiator === option.value ? option.color : "#e5e7eb",
-                      borderRadius: 8,
-                      cursor: "pointer",
-                      backgroundColor:
-                        initiator === option.value ? `${option.color}10` : "white",
-                      flex: 1,
-                      justifyContent: "center",
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name={`initiator_${voting.id}`}
-                      value={option.value}
-                      checked={initiator === option.value}
-                      onChange={(e) => setInitiator(e.target.value)}
-                      style={{ marginRight: 8 }}
-                    />
-                    {option.label}
-                  </label>
-                ))}
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name={`initiator_${poll.id}`}
+                    value="yes"
+                    onChange={() => setIsInitiator(true)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">👍 ДА</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name={`initiator_${poll.id}`}
+                    value="no"
+                    onChange={() => setIsInitiator(false)}
+                    defaultChecked
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">👎 НЕТ</span>
+                </label>
               </div>
             </div>
           )}
 
+          {/* Кнопка голосования */}
           <button
             type="submit"
-            disabled={!vote}
-            style={{
-              padding: "12px 24px",
-              borderRadius: 8,
-              border: "none",
-              color: "white",
-              background: vote ? "#3b82f6" : "#9ca3af",
-              fontWeight: 600,
-              cursor: vote ? "pointer" : "not-allowed",
-              fontSize: 15,
-            }}
+            disabled={!selectedOption}
+            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Проголосовать
           </button>
         </form>
-      ) : isVoted ? (
-        <div
-          style={{
-            padding: 16,
-            background: "#dcfce7",
-            borderRadius: 8,
-            border: "1px solid #16a34a",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 20, marginRight: 8 }}>✅</span>
-            <strong>Вы проголосовали</strong>
-          </div>
-          <div style={{ fontSize: 14 }}>
-            <div>
-              Ваш голос:{" "}
-              <strong>
-                {userVote.vote === "yes"
-                  ? "ДА"
-                  : userVote.vote === "no"
-                  ? "НЕТ"
-                  : "ВОЗДЕРЖАЛСЯ"}
-              </strong>
-            </div>
-            {voting.requiresInitiator && (
-              <div>
-                Инициатор:{" "}
-                <strong>{userVote.initiator === "yes" ? "ДА" : "НЕТ"}</strong>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div
-          style={{
-            padding: 16,
-            background: "#f3f4f6",
-            borderRadius: 8,
-            textAlign: "center",
-            color: "#6b7280",
-          }}
-        >
-          Голосование временно приостановлено
-        </div>
       )}
     </div>
   );

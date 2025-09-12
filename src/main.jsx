@@ -1,17 +1,10 @@
-// src/main.jsx
-import React from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
-import "./index.css"; // если у тебя есть Tailwind/стили
+import './index.css';
 
-createRoot(document.getElementById("app")).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
+createRoot(document.getElementById('app')).render(
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>
 );
-import { startAppTimers } from "./lib/boot.js";
-startAppTimers();
-

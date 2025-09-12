@@ -1,504 +1,407 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useAuth, useRepository, useFeatures } from "../lib/repo/context.jsx";
 
 export default function TenderPage() {
-  const { votingId } = useParams();
-  const navigate = useNavigate();
-  const [voting, setVoting] = useState(null);
-  const [proposals, setProposals] = useState([]);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [userVote, setUserVote] = useState(null);
-
-  const user = JSON.parse(localStorage.getItem("vg_user") || "null");
+  const [tenders, setTenders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const { repository, backend } = useRepository();
+  const features = useFeatures();
 
   useEffect(() => {
-    loadVotingAndProposals();
-  }, [votingId]);
+    loadTenders();
+  }, []);
 
-  const loadVotingAndProposals = () => {
-    const savedVotings = JSON.parse(localStorage.getItem("vg_votings") || "[]");
-    const foundVoting = savedVotings.find((v) => v.id === votingId);
-
-    if (!foundVoting) {
-      navigate("/vote");
-      return;
+  const loadTenders = async () => {
+    try {
+      setLoading(true);
+      
+      if (backend === 'local') {
+        // Тестовые тендеры для localStorage
+        const testTenders = [
+          {
+            id: 1,
+            title: "Поставка детской площадки",
+            description: "Требуется поставка и установка детской площадки для двора",
+            status: "open",
+            deadline: new Date(Date.now() + 86400000 * 14).toISOString(), // через 2 недели
+            budget: 150000,
+            proposals: [
+              {
+                id: 1,
+                contractor: "ООО Детские площадки",
+                price: 145000,
+                description: "Современная площадка с гарантией 5 лет",
+                rating: 4.8
+              },
+              {
+                id: 2,
+                contractor: "Игровые комплексы СПб",
+                price: 160000,
+                description: "Экологически чистые материалы",
+                rating: 4.6
+              }
+            ],
+            createdAt: new Date(Date.now() - 86400000 * 3).toISOString()
+          },
+          {
+            id: 2,
+            title: "Уборка придомовой территории",
+            description: "Еженедельная уборка и вывоз мусора",
+            status: "closed",
+            deadline: new Date(Date.now() - 86400000).toISOString(), // вчера
+            budget: 25000,
+            proposals: [],
+            createdAt: new Date(Date.now() - 86400000 * 10).toISOString()
+          }
+        ];
+        setTenders(testTenders);
+      } else {
+        // Supabase тендеры
+        const data = await repository.getTenders();
+        setTenders(data);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки тендеров:', error);
+    } finally {
+      setLoading(false);
     }
-
-    setVoting(foundVoting);
-    setProposals(foundVoting.tenderProposals || []);
-
-    // Загружаем голос пользователя по тендеру
-    const tenderVotes = JSON.parse(
-      localStorage.getItem("vg_tender_votes") || "{}",
-    );
-    setUserVote(tenderVotes[votingId]);
   };
 
-  const addProposal = (proposalData) => {
-    const newProposal = {
-      id: `proposal_${Date.now()}`,
-      votingId: votingId,
-      authorId: user.id,
-      authorName: user.fullName || user.login,
-      ...proposalData,
-      createdAt: new Date().toISOString(),
-      votes: 0,
-    };
-
-    const updatedProposals = [...proposals, newProposal];
-    setProposals(updatedProposals);
-
-    // Обновляем в localStorage
-    const savedVotings = JSON.parse(localStorage.getItem("vg_votings") || "[]");
-    const updatedVotings = savedVotings.map((v) => {
-      if (v.id === votingId) {
-        return { ...v, tenderProposals: updatedProposals };
-      }
-      return v;
-    });
-
-    localStorage.setItem("vg_votings", JSON.stringify(updatedVotings));
-    setShowAddForm(false);
-  };
-
-  const voteForProposal = (proposalId) => {
-    // Сохраняем голос пользователя
-    const tenderVotes = JSON.parse(
-      localStorage.getItem("vg_tender_votes") || "{}",
-    );
-    tenderVotes[votingId] = proposalId;
-    localStorage.setItem("vg_tender_votes", JSON.stringify(tenderVotes));
-    setUserVote(proposalId);
-
-    // Обновляем счетчик голосов
-    const updatedProposals = proposals.map((p) => {
-      if (p.id === proposalId) {
-        return { ...p, votes: (p.votes || 0) + 1 };
-      }
-      return p;
-    });
-
-    setProposals(updatedProposals);
-
-    // Сохраняем в localStorage
-    const savedVotings = JSON.parse(localStorage.getItem("vg_votings") || "[]");
-    const updatedVotings = savedVotings.map((v) => {
-      if (v.id === votingId) {
-        return { ...v, tenderProposals: updatedProposals };
-      }
-      return v;
-    });
-
-    localStorage.setItem("vg_votings", JSON.stringify(updatedVotings));
-  };
-
-  if (!voting) {
-    return <div style={{ padding: 20 }}>Загрузка...</div>;
-  }
-
-  if (voting.status !== "tender") {
+  // Проверка что функция тендеров включена
+  if (!features.tender) {
     return (
-      <div
-        style={{
-          maxWidth: 600,
-          margin: "50px auto",
-          padding: 20,
-          textAlign: "center",
-        }}
-      >
-        <h2>Тендер недоступен</h2>
-        <p>Голосование должно быть в статусе "Тендер"</p>
-        <button
-          onClick={() => navigate("/vote")}
-          style={{ padding: "10px 20px" }}
-        >
-          Вернуться к голосованиям
-        </button>
+      <div className="max-w-4xl mx-auto text-center py-12">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-yellow-800 mb-2">
+            Функция тендеров отключена
+          </h2>
+          <p className="text-yellow-700">
+            Эта функция временно недоступна. Обратитесь к администратору.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: "24px auto", padding: "0 16px" }}>
-      {/* Заголовок */}
-      <div style={{ marginBottom: 24 }}>
-        <h1>Тендер предложений</h1>
-        <div
-          style={{
-            padding: 16,
-            backgroundColor: "#f3f4f6",
-            borderRadius: 8,
-            marginBottom: 16,
-          }}
-        >
-          <h3 style={{ margin: "0 0 8px 0" }}>{voting.title}</h3>
-          <p style={{ margin: 0, color: "#6b7280" }}>{voting.text}</p>
-        </div>
-      </div>
-
-      {/* Кнопка добавления предложения */}
-      {!showAddForm && (
-        <div style={{ marginBottom: 24 }}>
-          <button
-            onClick={() => setShowAddForm(true)}
-            style={{
-              padding: "12px 24px",
-              backgroundColor: "#3b82f6",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-          >
-            Добавить предложение
-          </button>
-        </div>
-      )}
-
-      {/* Форма добавления предложения */}
-      {showAddForm && (
-        <ProposalForm
-          onSubmit={addProposal}
-          onCancel={() => setShowAddForm(false)}
-        />
-      )}
-
-      {/* Список предложений */}
-      <div>
-        <h2 style={{ marginBottom: 16 }}>Предложения ({proposals.length})</h2>
-
-        {proposals.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: 40,
-              border: "2px dashed #ddd",
-              borderRadius: 12,
-              color: "#666",
-            }}
-          >
-            Пока нет предложений. Станьте первым!
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 16 }}>
-            {proposals.map((proposal) => (
-              <ProposalCard
-                key={proposal.id}
-                proposal={proposal}
-                userVote={userVote}
-                onVote={() => voteForProposal(proposal.id)}
-                isVoted={userVote === proposal.id}
-                canVote={!userVote}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Форма добавления предложения
-function ProposalForm({ onSubmit, onCancel }) {
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    cost: "",
-    paymentType: "prepaid", // prepaid, postpaid, partial
-    executor: "",
-    timeline: "",
-    contactInfo: "",
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    if (!formData.title.trim() || !formData.description.trim()) {
-      alert("Заполните название и описание");
-      return;
-    }
-
-    onSubmit(formData);
-  };
-
-  const handleChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: 12,
-        padding: 24,
-        backgroundColor: "#f9fafb",
-        marginBottom: 24,
-      }}
-    >
-      <h3 style={{ margin: "0 0 16px 0" }}>Новое предложение</h3>
-
-      <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16 }}>
+    <div className="max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <label style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>
-            Название предложения *
-          </label>
-          <input
-            type="text"
-            value={formData.title}
-            onChange={(e) => handleChange("title", e.target.value)}
-            placeholder="Краткое название вашего предложения"
-            style={{
-              width: "100%",
-              padding: 12,
-              border: "1px solid #ddd",
-              borderRadius: 8,
-              boxSizing: "border-box",
-            }}
-          />
+          <h1 className="text-2xl font-bold text-gray-900">Тендеры</h1>
+          <p className="text-gray-600">Конкурсы на выполнение работ и услуг</p>
         </div>
-
-        <div>
-          <label style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>
-            Описание *
-          </label>
-          <textarea
-            value={formData.description}
-            onChange={(e) => handleChange("description", e.target.value)}
-            placeholder="Детальное описание как вы решите проблему"
-            rows={4}
-            style={{
-              width: "100%",
-              padding: 12,
-              border: "1px solid #ddd",
-              borderRadius: 8,
-              resize: "vertical",
-              boxSizing: "border-box",
-            }}
-          />
-        </div>
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
-        >
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 8 }}
-            >
-              Стоимость (руб.)
-            </label>
-            <input
-              type="number"
-              value={formData.cost}
-              onChange={(e) => handleChange("cost", e.target.value)}
-              placeholder="0"
-              style={{
-                width: "100%",
-                padding: 12,
-                border: "1px solid #ddd",
-                borderRadius: 8,
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 8 }}
-            >
-              Условия оплаты
-            </label>
-            <select
-              value={formData.paymentType}
-              onChange={(e) => handleChange("paymentType", e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                border: "1px solid #ddd",
-                borderRadius: 8,
-                boxSizing: "border-box",
-              }}
-            >
-              <option value="prepaid">Предоплата</option>
-              <option value="postpaid">Постоплата</option>
-              <option value="partial">Частичная предоплата</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>
-            Исполнитель
-          </label>
-          <input
-            type="text"
-            value={formData.executor}
-            onChange={(e) => handleChange("executor", e.target.value)}
-            placeholder="Кто будет выполнять работу"
-            style={{
-              width: "100%",
-              padding: 12,
-              border: "1px solid #ddd",
-              borderRadius: 8,
-              boxSizing: "border-box",
-            }}
-          />
-        </div>
-
-        <div>
-          <label style={{ display: "block", fontWeight: 600, marginBottom: 8 }}>
-            Сроки выполнения
-          </label>
-          <input
-            type="text"
-            value={formData.timeline}
-            onChange={(e) => handleChange("timeline", e.target.value)}
-            placeholder="Например: завтра утром, 2-3 часа"
-            style={{
-              width: "100%",
-              padding: 12,
-              border: "1px solid #ddd",
-              borderRadius: 8,
-              boxSizing: "border-box",
-            }}
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              padding: "12px 24px",
-              border: "1px solid #ddd",
-              borderRadius: 8,
-              backgroundColor: "white",
-              cursor: "pointer",
-            }}
-          >
-            Отмена
-          </button>
-          <button
-            type="submit"
-            style={{
-              padding: "12px 24px",
-              border: "none",
-              borderRadius: 8,
-              backgroundColor: "#3b82f6",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Добавить предложение
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// Карточка предложения
-function ProposalCard({ proposal, onVote, isVoted, canVote }) {
-  const getPaymentTypeText = (type) => {
-    const types = {
-      prepaid: "Предоплата",
-      postpaid: "Постоплата",
-      partial: "Частичная предоплата",
-    };
-    return types[type] || type;
-  };
-
-  return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: 12,
-        padding: 20,
-        backgroundColor: isVoted ? "#ecfdf5" : "white",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 12,
-        }}
-      >
-        <h3 style={{ margin: 0, color: "#1f2937" }}>{proposal.title}</h3>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 18, fontWeight: 600, color: "#059669" }}>
-            {proposal.cost ? `${proposal.cost} ₽` : "Бесплатно"}
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            {getPaymentTypeText(proposal.paymentType)}
-          </div>
-        </div>
-      </div>
-
-      <p style={{ color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.5 }}>
-        {proposal.description}
-      </p>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: 12,
-          marginBottom: 16,
-          fontSize: 14,
-          color: "#6b7280",
-        }}
-      >
-        {proposal.executor && (
-          <div>
-            <strong>Исполнитель:</strong> {proposal.executor}
-          </div>
-        )}
-        {proposal.timeline && (
-          <div>
-            <strong>Сроки:</strong> {proposal.timeline}
-          </div>
-        )}
-        <div>
-          <strong>Автор:</strong> {proposal.authorName}
-        </div>
-        <div>
-          <strong>Голосов:</strong> {proposal.votes || 0}
-        </div>
-      </div>
-
-      {canVote ? (
         <button
-          onClick={onVote}
-          style={{
-            padding: "10px 20px",
-            backgroundColor: "#10b981",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-            cursor: "pointer",
-            fontWeight: 600,
-          }}
+          onClick={loadTenders}
+          className="px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
-          Голосовать за это предложение
+          Обновить
         </button>
-      ) : isVoted ? (
-        <div
-          style={{
-            padding: 10,
-            backgroundColor: "#d1fae5",
-            color: "#065f46",
-            borderRadius: 6,
-            fontWeight: 600,
-          }}
-        >
-          ✓ Вы проголосовали за это предложение
+      </div>
+
+      {tenders.length === 0 ? (
+        <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Нет активных тендеров</h3>
+          <p className="text-gray-500">Тендеры появятся здесь когда будут объявлены</p>
         </div>
       ) : (
-        <div style={{ color: "#6b7280", fontSize: 14 }}>
-          Вы уже проголосовали в этом тендере
+        <div className="space-y-6">
+          {tenders.map((tender) => (
+            <TenderCard key={tender.id} tender={tender} user={user} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TenderCard({ tender, user }) {
+  const [showProposals, setShowProposals] = useState(false);
+  const [showProposalForm, setShowProposalForm] = useState(false);
+  const [proposalForm, setProposalForm] = useState({
+    contractor: '',
+    price: '',
+    description: '',
+    phone: ''
+  });
+
+  const getStatusBadge = () => {
+    const statusColors = {
+      'open': 'bg-green-100 text-green-800',
+      'closed': 'bg-red-100 text-red-800',
+      'in_progress': 'bg-blue-100 text-blue-800',
+      'completed': 'bg-gray-100 text-gray-800'
+    };
+
+    const statusTexts = {
+      'open': 'Открыт',
+      'closed': 'Закрыт',
+      'in_progress': 'В работе',
+      'completed': 'Завершен'
+    };
+
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[tender.status] || 'bg-gray-100 text-gray-800'}`}>
+        {statusTexts[tender.status] || tender.status}
+      </span>
+    );
+  };
+
+  const isExpired = new Date(tender.deadline) < new Date();
+  const daysLeft = Math.ceil((new Date(tender.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+
+  const handleProposalSubmit = (e) => {
+    e.preventDefault();
+    
+    if (!proposalForm.contractor.trim()) {
+      alert('Введите название организации');
+      return;
+    }
+    
+    if (!proposalForm.price || proposalForm.price <= 0) {
+      alert('Введите корректную цену');
+      return;
+    }
+    
+    if (!proposalForm.description.trim()) {
+      alert('Введите описание предложения');
+      return;
+    }
+
+    // Простая демонстрация - добавляем предложение в localStorage
+    const newProposal = {
+      id: Date.now(),
+      contractor: proposalForm.contractor.trim(),
+      price: parseInt(proposalForm.price),
+      description: proposalForm.description.trim(),
+      phone: proposalForm.phone.trim(),
+      submittedAt: new Date().toISOString(),
+      submittedBy: user?.username || user?.login || 'anonymous'
+    };
+
+    // Сохраняем предложение
+    const proposalsKey = `tender_${tender.id}_proposals`;
+    const existingProposals = JSON.parse(localStorage.getItem(proposalsKey) || '[]');
+    existingProposals.push(newProposal);
+    localStorage.setItem(proposalsKey, JSON.stringify(existingProposals));
+
+    alert('Предложение подано успешно!');
+    setShowProposalForm(false);
+    setProposalForm({ contractor: '', price: '', description: '', phone: '' });
+    
+    // Перезагружаем страницу чтобы показать новое предложение
+    window.location.reload();
+  };
+
+  const handleInputChange = (field) => (e) => {
+    setProposalForm(prev => ({
+      ...prev,
+      [field]: e.target.value
+    }));
+  };
+
+  // Загружаем предложения из localStorage
+  const proposalsKey = `tender_${tender.id}_proposals`;
+  const savedProposals = JSON.parse(localStorage.getItem(proposalsKey) || '[]');
+  const allProposals = [...(tender.proposals || []), ...savedProposals];
+
+  return (
+    <div className="bg-white shadow rounded-lg border border-gray-200 p-6">
+      {/* Заголовок и статус */}
+      <div className="flex justify-between items-start mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">{tender.title}</h3>
+        {getStatusBadge()}
+      </div>
+
+      {/* Описание */}
+      <p className="text-gray-600 mb-4">{tender.description}</p>
+
+      {/* Информация о тендере */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm">
+        <div>
+          <span className="font-medium text-gray-700">Бюджет:</span>
+          <p className="text-gray-900">{tender.budget?.toLocaleString()} ₽</p>
+        </div>
+        <div>
+          <span className="font-medium text-gray-700">Срок подачи:</span>
+          <p className={`${isExpired ? 'text-red-600' : 'text-gray-900'}`}>
+            {new Date(tender.deadline).toLocaleDateString()}
+            {!isExpired && daysLeft > 0 && (
+              <span className="text-gray-500 ml-1">({daysLeft} дн.)</span>
+            )}
+            {isExpired && <span className="text-red-600 ml-1">(просрочен)</span>}
+          </p>
+        </div>
+        <div>
+          <span className="font-medium text-gray-700">Предложений:</span>
+          <p className="text-gray-900">{allProposals.length}</p>
+        </div>
+      </div>
+
+      {/* Предложения */}
+      {allProposals.length > 0 && (
+        <div className="border-t pt-4">
+          <button
+            onClick={() => setShowProposals(!showProposals)}
+            className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-500 mb-3"
+          >
+            {showProposals ? 'Скрыть' : 'Показать'} предложения ({allProposals.length})
+            <svg 
+              className={`ml-1 h-4 w-4 transform transition-transform ${showProposals ? 'rotate-180' : ''}`} 
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showProposals && (
+            <div className="space-y-3">
+              {allProposals.map((proposal) => (
+                <div key={proposal.id} className="bg-gray-50 rounded-md p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-medium text-gray-900">{proposal.contractor}</h4>
+                    <div className="text-right">
+                      <div className="font-semibold text-gray-900">{proposal.price?.toLocaleString()} ₽</div>
+                      {proposal.rating && (
+                        <div className="text-sm text-yellow-600">
+                          ★ {proposal.rating}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-gray-600 text-sm mb-2">{proposal.description}</p>
+                  {proposal.phone && (
+                    <p className="text-gray-500 text-xs">Телефон: {proposal.phone}</p>
+                  )}
+                  {proposal.submittedAt && (
+                    <p className="text-gray-400 text-xs">
+                      Подано: {new Date(proposal.submittedAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Действия */}
+      <div className="flex justify-between items-center mt-4 pt-4 border-t">
+        <div className="text-xs text-gray-500">
+          Создан: {new Date(tender.createdAt).toLocaleDateString()}
+        </div>
+        
+        {tender.status === 'open' && !isExpired && (
+          <button 
+            onClick={() => setShowProposalForm(true)}
+            className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Подать предложение
+          </button>
+        )}
+      </div>
+
+      {/* Модальное окно формы предложения */}
+      {showProposalForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                Подать предложение
+              </h3>
+              <button
+                onClick={() => setShowProposalForm(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleProposalSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Название организации *
+                </label>
+                <input
+                  type="text"
+                  value={proposalForm.contractor}
+                  onChange={handleInputChange('contractor')}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="ООО Ваша компания"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Цена (₽) *
+                </label>
+                <input
+                  type="number"
+                  value={proposalForm.price}
+                  onChange={handleInputChange('price')}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="150000"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Телефон
+                </label>
+                <input
+                  type="tel"
+                  value={proposalForm.phone}
+                  onChange={handleInputChange('phone')}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="+7 900 000-00-00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Описание предложения *
+                </label>
+                <textarea
+                  value={proposalForm.description}
+                  onChange={handleInputChange('description')}
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Подробное описание вашего предложения..."
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowProposalForm(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700"
+                >
+                  Подать предложение
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -1,5 +1,3 @@
-// src/lib/auth.js
-
 // Единый список опций (чтобы Vote и Results не дублировали)
 export const OPTIONS = [
   { id: "opt1", title: "Проект А" },
@@ -34,13 +32,26 @@ export function loginDemo(username, password) {
   if (!username || !password) {
     return { ok: false, error: "Введите логин и пароль" };
   }
-  if (username === "admin" && password === "1234") {
-    const user = { username, role: "admin" };
+  
+  // Гибкая проверка для админа - принимаем разные пароли
+  if (username === "admin" && (password === "1234" || password === "123")) {
+    const user = { 
+      username, 
+      role: "admin",
+      login: "admin",
+      fullName: "Администратор"
+    };
     writeJSON("vg_user", user);
     return { ok: true, user };
   }
+  
   // любой другой логин/пароль считаем обычным пользователем
-  const user = { username, role: "user" };
+  const user = { 
+    username, 
+    role: "user",
+    login: username,
+    fullName: `Пользователь ${username}`
+  };
   writeJSON("vg_user", user);
   return { ok: true, user };
 }
