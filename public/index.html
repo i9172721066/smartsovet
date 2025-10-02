@@ -1,0 +1,82 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>СмартСовет - Система управления жилым комплексом</title>
+  <meta name="description" content="СмартСовет - система для организации голосований, управления инициативами и финансирования общих проектов в жилых комплексах">
+  
+  <!-- Простая иконка без внешних файлов -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏠%3C/text%3E%3C/svg%3E">
+  
+  <!-- Базовые стили для предотвращения мерцания -->
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif;
+      background-color: #f9fafb;
+      color: #1f2937;
+      line-height: 1.5;
+    }
+    
+    #root {
+      min-height: 100vh;
+    }
+    
+    /* Стили для случая если JavaScript отключен */
+    .no-js {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .no-js h1 {
+      color: #ef4444;
+      margin-bottom: 16px;
+    }
+    
+    .no-js p {
+      color: #6b7280;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Основной контейнер для React приложения -->
+  <div id="root">
+    <!-- Содержимое для случая отключенного JavaScript -->
+    <noscript>
+      <div class="no-js">
+        <div>
+          <h1>JavaScript отключен</h1>
+          <p>Для работы СмартСовет необходим включенный JavaScript.</p>
+          <p>Пожалуйста, включите JavaScript в настройках браузера и перезагрузите страницу.</p>
+        </div>
+      </div>
+    </noscript>
+  </div>
+  
+  <!-- Загрузка React приложения -->
+  <script type="module" src="/src/main.jsx"></script>
+  
+  <!-- Обработчик глобальных ошибок -->
+  <script>
+    window.addEventListener('error', function(e) {
+      console.error('Глобальная ошибка:', e.error);
+    });
+    
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('Необработанное отклонение Promise:', e.reason);
+    });
+  </script>
+</body>
+</html>
